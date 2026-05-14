@@ -32,10 +32,12 @@ TODAY = datetime.utcnow().strftime("%Y/%m/%d")
 TODAY_DASH = datetime.utcnow().strftime("%Y-%m-%d")
 
 # 5 個 PCC 來源（每個來源獨立 source key）
+# max_pages: 限制翻頁數，因為某些 list 會把舊 active 案件全列出來
 SOURCES = [
     {
         "source": "pcc_tender",
         "subtype": "WAY_1",
+        "max_pages": 50,
         "url": (
             f"{BASE}/prkms/tender/common/basic/readTenderBasic"
             f"?pageSize=100&firstSearch=true&searchType=basic&isBinding=N&isLogIn=N&level_1=on"
@@ -48,6 +50,7 @@ SOURCES = [
     {
         "source": "pcc_tender",
         "subtype": "WAY_4",
+        "max_pages": 50,
         "url": (
             f"{BASE}/prkms/tender/common/basic/readTenderBasic"
             f"?pageSize=100&firstSearch=false&searchType=basic&isBinding=N&isLogIn=N&level_1=on"
@@ -60,6 +63,7 @@ SOURCES = [
     {
         "source": "pcc_quote",
         "subtype": None,
+        "max_pages": 4,  # 公開徵求 list 累積 active 案件，限 4 頁 = 400 筆
         "url": (
             f"{BASE}/prkms/tpAppeal/common/readTpAppeal/basic/returnToBasic"
             f"?orgName=&tenderName=&endDate={urllib.parse.quote(TODAY)}"
@@ -71,6 +75,7 @@ SOURCES = [
     {
         "source": "pcc_tpread",
         "subtype": None,
+        "max_pages": 5,  # 公開閱覽量小，5 頁夠
         "url": (
             f"{BASE}/prkms/tpRead/common/readTpRead"
             f"?orgName=&tenderName=&queryStartDate={urllib.parse.quote(TODAY)}"
@@ -82,6 +87,7 @@ SOURCES = [
     {
         "source": "pcc_obtain",
         "subtype": "WAY_12",
+        "max_pages": 50,
         "url": (
             f"{BASE}/prkms/tender/common/basic/readTenderBasic"
             f"?pageSize=100&firstSearch=true&searchType=basic&isBinding=N&isLogIn=N&level_1=on"
@@ -94,6 +100,7 @@ SOURCES = [
     {
         "source": "pcc_obtain",
         "subtype": "WAY_2",
+        "max_pages": 50,
         "url": (
             f"{BASE}/prkms/tender/common/basic/readTenderBasic"
             f"?pageSize=100&firstSearch=true&searchType=basic&isBinding=N&isLogIn=N&level_1=on"
@@ -165,12 +172,11 @@ def parse_pcc_list(html: str) -> list[dict]:
     return rows
 
 
-def fetch_list(url: str, session) -> str:
-    """抓 PCC list page。如果有翻頁，跟著翻完。"""
+def fetch_list(url: str, session, max_pages: int = 50) -> str:
+    """抓 PCC list page。如果有翻頁，跟著翻完。受 max_pages 限制。"""
     all_html_parts = []
     current_url = url
     pages_fetched = 0
-    max_pages = 50
     while pages_fetched < max_pages:
         r = session.get(current_url, timeout=30)
         if r.status_code != 200:
@@ -200,9 +206,9 @@ def main():
 
     all_rows = []
     for src in SOURCES:
-        print(f"\n== {src['source']} / {src['subtype'] or '-'} ==")
+        print(f"\n== {src['source']} / {src['subtype'] or '-'} (max_pages={src.get('max_pages', 50)}) ==")
         try:
-            html = fetch_list(src["url"], session)
+            html = fetch_list(src["url"], session, max_pages=src.get("max_pages", 50))
             parsed = parse_pcc_list(html)
             for p in parsed:
                 p["source"] = src["source"]
