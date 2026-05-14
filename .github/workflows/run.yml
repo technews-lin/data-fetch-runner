@@ -16,8 +16,8 @@ on:
         required: true
         default: '8'
   schedule:
-    # 每 4 小時自動 fire 一次（daily incremental drain）
-    - cron: '0 */4 * * *'
+    # 每 30 分鐘自動 fire 一次（backfill 衝刺；daily 階段可調回 0 */4 * * *）
+    - cron: '*/30 * * * *'
 
 jobs:
   expand:
