@@ -28,6 +28,33 @@ API_TOKEN = os.environ["API_TOKEN"]
 HEADERS_AUTH = {"Authorization": f"Bearer {API_TOKEN}"}
 
 BASE = "https://web.pcc.gov.tw"
+
+# 完整 Chrome 131 header 集合（跟本機 scrape_awards.py 一樣）
+# 沒有這些 header，PCC 會把連發 request 丟進 slow-lane 觸發 timeout
+PCC_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/131.0.0.0 Safari/537.36"
+    ),
+    "Accept": (
+        "text/html,application/xhtml+xml,application/xml;q=0.9,"
+        "image/avif,image/webp,image/apng,*/*;q=0.8,"
+        "application/signed-exchange;v=b3;q=0.7"
+    ),
+    "Accept-Language": "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Accept-Encoding": "gzip, deflate, br, zstd",
+    "Cache-Control": "no-cache",
+    "Pragma": "no-cache",
+    "Sec-Ch-Ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+    "Sec-Ch-Ua-Mobile": "?0",
+    "Sec-Ch-Ua-Platform": '"macOS"',
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "same-origin",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1",
+}
 TODAY = datetime.utcnow().strftime("%Y/%m/%d")
 TODAY_DASH = datetime.utcnow().strftime("%Y-%m-%d")
 
@@ -215,6 +242,7 @@ def main():
         print(f"\n== {src['source']} / {src['subtype'] or '-'} (max_pages={src.get('max_pages', 50)}) ==", flush=True)
         # 每個 source 新 session（隔離一個 source 的 slow-lane 影響另一個）
         session = cr.Session(impersonate="chrome120", verify=False, timeout=60)
+        session.headers.update(PCC_HEADERS)
         try:
             session.get(f"{BASE}/prkms/tender/common/bulletion/readBulletion", timeout=30)
         except Exception as e:
