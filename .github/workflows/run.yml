@@ -21,6 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -32,5 +33,3 @@ jobs:
           BATCH_SIZE: ${{ github.event.inputs.batch_size }}
           MAX_ITER: ${{ github.event.inputs.max_iterations }}
         run: python3 worker.py
-      - uses: actions/checkout@v4
-        if: false  # noop, kept to obscure intent
