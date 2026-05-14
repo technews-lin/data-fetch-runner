@@ -3,23 +3,48 @@ name: Run
 on:
   workflow_dispatch:
     inputs:
-      runner_id:
-        description: Runner ID (for log distinguishing)
+      parallel:
+        description: How many parallel runners (max 20)
         required: true
-        default: '1'
+        default: '10'
       batch_size:
         description: Tasks per claim
         required: true
-        default: '10'
+        default: '20'
       max_iterations:
-        description: How many claim+process loops before exit
+        description: Claim+process loops per runner
         required: true
-        default: '5'
+        default: '8'
+  schedule:
+    # 每 4 小時自動 fire 一次（daily incremental drain）
+    - cron: '0 */4 * * *'
 
 jobs:
+  expand:
+    runs-on: ubuntu-latest
+    outputs:
+      runners: ${{ steps.gen.outputs.runners }}
+    steps:
+      - id: gen
+        run: |
+          P=${{ github.event.inputs.parallel || '10' }}
+          ARR="["
+          for i in $(seq 1 $P); do
+            ARR="$ARR\"r$i\""
+            [ $i -lt $P ] && ARR="$ARR,"
+          done
+          ARR="$ARR]"
+          echo "runners=$ARR" >> $GITHUB_OUTPUT
+          echo "Will spawn: $ARR"
+
   run:
+    needs: expand
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: ${{ fromJSON(needs.expand.outputs.runners) }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -29,7 +54,7 @@ jobs:
       - env:
           API_ENDPOINT: ${{ secrets.API_ENDPOINT }}
           API_TOKEN: ${{ secrets.API_TOKEN }}
-          RUNNER_ID: ${{ github.event.inputs.runner_id }}
-          BATCH_SIZE: ${{ github.event.inputs.batch_size }}
-          MAX_ITER: ${{ github.event.inputs.max_iterations }}
+          RUNNER_ID: ${{ matrix.runner }}
+          BATCH_SIZE: ${{ github.event.inputs.batch_size || '20' }}
+          MAX_ITER: ${{ github.event.inputs.max_iterations || '8' }}
         run: python3 worker.py
