@@ -1,0 +1,44 @@
+name: Daily
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 06:00 台灣 = 22:00 UTC (前一天)
+    - cron: '0 22 * * *'
+
+jobs:
+  list:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -q curl_cffi
+      - env:
+          API_ENDPOINT: ${{ secrets.API_ENDPOINT }}
+          API_TOKEN: ${{ secrets.API_TOKEN }}
+        run: python3 daily_list.py
+
+  detail:
+    needs: list
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [d1, d2, d3, d4, d5]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -q curl_cffi
+      - env:
+          API_ENDPOINT: ${{ secrets.API_ENDPOINT }}
+          API_TOKEN: ${{ secrets.API_TOKEN }}
+          RUNNER_ID: ${{ matrix.runner }}
+          BATCH_SIZE: '20'
+          MAX_ITER: '8'
+        run: python3 daily_worker.py
