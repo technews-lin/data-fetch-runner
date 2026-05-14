@@ -3,26 +3,11 @@ name: Daily
 on:
   workflow_dispatch:
   schedule:
-    # 06:00 台灣 = 22:00 UTC (前一天)
-    - cron: '0 22 * * *'
+    # 06:30 台灣 = 22:30 UTC（給 CF 30 分鐘先抓 list）
+    - cron: '30 22 * * *'
 
 jobs:
-  list:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - run: pip install -q curl_cffi
-      - env:
-          API_ENDPOINT: ${{ secrets.API_ENDPOINT }}
-          API_TOKEN: ${{ secrets.API_TOKEN }}
-        run: python3 daily_list.py
-
   detail:
-    needs: list
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
