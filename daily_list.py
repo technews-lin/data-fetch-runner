@@ -172,19 +172,32 @@ def parse_pcc_list(html: str) -> list[dict]:
     return rows
 
 
+def fetch_with_retry(session, url: str, attempts: int = 3, timeout: int = 60) -> str:
+    """retry on timeout/connection. GHA Azure → PCC 偶爾被 slow-lane."""
+    last_err = None
+    for i in range(attempts):
+        try:
+            r = session.get(url, timeout=timeout)
+            if r.status_code == 200:
+                return r.text
+            last_err = f"HTTP {r.status_code}"
+        except Exception as e:
+            last_err = f"{type(e).__name__}: {e}"
+        if i < attempts - 1:
+            time.sleep(5 * (i + 1))  # 5s, 10s
+    raise RuntimeError(f"failed after {attempts} attempts: {last_err}")
+
+
 def fetch_list(url: str, session, max_pages: int = 50) -> str:
     """抓 PCC list page。如果有翻頁，跟著翻完。受 max_pages 限制。"""
     all_html_parts = []
     current_url = url
     pages_fetched = 0
     while pages_fetched < max_pages:
-        r = session.get(current_url, timeout=30)
-        if r.status_code != 200:
-            break
-        all_html_parts.append(r.text)
+        text = fetch_with_retry(session, current_url, attempts=3, timeout=60)
+        all_html_parts.append(text)
         pages_fetched += 1
-        # 找下一頁 anchor
-        m = re.search(r'<a href="([^"]+)"[^>]*>(?:下一頁|»|next)', r.text)
+        m = re.search(r'<a href="([^"]+)"[^>]*>(?:下一頁|»|next)', text)
         if not m:
             break
         nxt = m.group(1)
@@ -197,27 +210,30 @@ def fetch_list(url: str, session, max_pages: int = 50) -> str:
 
 def main():
     print(f"daily list scrape, today={TODAY}")
-    session = cr.Session(impersonate="chrome120", verify=False, timeout=30)
-    # warmup
-    try:
-        session.get(f"{BASE}/prkms/tender/common/bulletion/readBulletion")
-    except Exception:
-        pass
-
     all_rows = []
     for src in SOURCES:
-        print(f"\n== {src['source']} / {src['subtype'] or '-'} (max_pages={src.get('max_pages', 50)}) ==")
+        print(f"\n== {src['source']} / {src['subtype'] or '-'} (max_pages={src.get('max_pages', 50)}) ==", flush=True)
+        # 每個 source 新 session（隔離一個 source 的 slow-lane 影響另一個）
+        session = cr.Session(impersonate="chrome120", verify=False, timeout=60)
+        try:
+            session.get(f"{BASE}/prkms/tender/common/bulletion/readBulletion", timeout=30)
+        except Exception as e:
+            print(f"  warmup err: {e}", flush=True)
         try:
             html = fetch_list(src["url"], session, max_pages=src.get("max_pages", 50))
             parsed = parse_pcc_list(html)
             for p in parsed:
                 p["source"] = src["source"]
                 p["source_subtype"] = src["subtype"]
-            print(f"  parsed {len(parsed)} rows")
+            print(f"  parsed {len(parsed)} rows", flush=True)
             all_rows.extend(parsed)
         except Exception as e:
-            print(f"  ERR: {e}")
-        time.sleep(2)
+            print(f"  ERR: {e}", flush=True)
+        try:
+            session.close()
+        except Exception:
+            pass
+        time.sleep(3)
 
     print(f"\n總共 {len(all_rows)} rows，POST 到 CF...")
     # 分批 POST（避免 payload 過大）
