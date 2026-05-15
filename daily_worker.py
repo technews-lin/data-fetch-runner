@@ -96,9 +96,10 @@ def process_task(session, task, rate_state):
                 return False  # signal captcha streak
             save_result(task["id"], "failed", error=reason)
             return False
+        # 用 r.content（raw bytes）避免 text→encode round-trip 走偏
         save_result(
             task["id"], "done",
-            html_b64=base64.b64encode(r.text.encode("utf-8")).decode("ascii"),
+            html_b64=base64.b64encode(r.content).decode("ascii"),
         )
         return True
     except Exception as e:
