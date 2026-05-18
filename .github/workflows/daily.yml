@@ -49,7 +49,7 @@ jobs:
     needs: check
     if: ${{ fromJSON(needs.check.outputs.incomplete) > 0 }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
