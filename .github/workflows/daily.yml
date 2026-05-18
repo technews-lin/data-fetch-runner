@@ -7,13 +7,27 @@ on:
     - cron: '30 22 * * *'
 
 jobs:
+  reset:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Reset stuck claimed daily_tasks (>10 min)
+        run: |
+          curl -fsS -X POST \
+            "${API_ENDPOINT}/reset-claimed-daily" \
+            -H "Authorization: Bearer ${API_TOKEN}"
+        env:
+          API_ENDPOINT: ${{ secrets.API_ENDPOINT }}
+          API_TOKEN: ${{ secrets.API_TOKEN }}
+
   detail:
+    needs: reset
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        runner: [d1, d2, d3, d4, d5]
+        runner: [d1, d2, d3, d4, d5, d6, d7, d8, d9, d10, d11, d12, d13, d14, d15]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
