@@ -3,8 +3,12 @@ name: Daily
 on:
   workflow_dispatch:
   schedule:
-    # 06:30 台灣 = 22:30 UTC（給 CF 30 分鐘先抓 list）
+    # 06:30 / 07:00 / 07:30 / 08:00 台灣（22:30 / 23:00 / 23:30 / 00:00 UTC）
+    # 第一波正常處理，後三波是補跑保險，確保 09:00 前完整
     - cron: '30 22 * * *'
+    - cron: '0 23 * * *'
+    - cron: '30 23 * * *'
+    - cron: '0 0 * * *'
 
 jobs:
   reset:
@@ -20,8 +24,30 @@ jobs:
           API_ENDPOINT: ${{ secrets.API_ENDPOINT }}
           API_TOKEN: ${{ secrets.API_TOKEN }}
 
-  detail:
+  check:
     needs: reset
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      incomplete: ${{ steps.q.outputs.incomplete }}
+    steps:
+      - id: q
+        name: Count incomplete (pending + claimed) for today
+        run: |
+          resp=$(curl -fsS \
+            "${API_ENDPOINT}/api/daily-incomplete" \
+            -H "Authorization: Bearer ${API_TOKEN}")
+          echo "response: $resp"
+          n=$(echo "$resp" | python3 -c "import sys,json; print(json.load(sys.stdin)['incomplete'])")
+          echo "incomplete: $n"
+          echo "incomplete=$n" >> "$GITHUB_OUTPUT"
+        env:
+          API_ENDPOINT: ${{ secrets.API_ENDPOINT }}
+          API_TOKEN: ${{ secrets.API_TOKEN }}
+
+  detail:
+    needs: check
+    if: ${{ fromJSON(needs.check.outputs.incomplete) > 0 }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
