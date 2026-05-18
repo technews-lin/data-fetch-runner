@@ -25,5 +25,6 @@ jobs:
           API_TOKEN: ${{ secrets.API_TOKEN }}
           RUNNER_ID: ${{ matrix.runner }}
           BATCH_SIZE: '20'
-          MAX_ITER: '8'
+          MAX_ITER: '5'
+          PYTHONUNBUFFERED: '1'
         run: python3 daily_worker.py

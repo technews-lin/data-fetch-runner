@@ -74,11 +74,15 @@ def save_result(task_id: int, result: str, **kwargs):
 
 
 def process_task(session, task, rate_state):
-    # rate pacing
+    tid = task["id"]
     if rate_state["last"] > 0:
         elapsed = time.time() - rate_state["last"]
         if elapsed < PACING_SEC:
-            time.sleep(PACING_SEC - elapsed)
+            wait = PACING_SEC - elapsed
+            print(f"  task {tid}: pacing {wait:.1f}s")
+            time.sleep(wait)
+    t0 = time.time()
+    print(f"  task {tid}: fetch {task['detail_url']}")
     try:
         r = session.get(
             task["detail_url"],
@@ -86,25 +90,31 @@ def process_task(session, task, rate_state):
             timeout=30,
         )
         rate_state["last"] = time.time()
+        dt = rate_state["last"] - t0
         if r.status_code != 200:
-            save_result(task["id"], "failed", error=f"HTTP {r.status_code}")
+            print(f"  task {tid}: HTTP {r.status_code} in {dt:.1f}s -> failed")
+            save_result(tid, "failed", error=f"HTTP {r.status_code}")
             return False
         ok, is_captcha, reason, size = validate(r.text)
         if not ok:
             if is_captcha:
-                save_result(task["id"], "captcha", error=reason)
-                return False  # signal captcha streak
-            save_result(task["id"], "failed", error=reason)
+                print(f"  task {tid}: captcha {size}b in {dt:.1f}s")
+                save_result(tid, "captcha", error=reason)
+                return False
+            print(f"  task {tid}: invalid ({reason}) in {dt:.1f}s")
+            save_result(tid, "failed", error=reason)
             return False
-        # 用 r.content（raw bytes）避免 text→encode round-trip 走偏
+        print(f"  task {tid}: done {size}b in {dt:.1f}s")
         save_result(
-            task["id"], "done",
+            tid, "done",
             html_b64=base64.b64encode(r.content).decode("ascii"),
         )
         return True
     except Exception as e:
         rate_state["last"] = time.time()
-        save_result(task["id"], "failed", error=f"{type(e).__name__}: {e}")
+        dt = rate_state["last"] - t0
+        print(f"  task {tid}: exception {type(e).__name__} in {dt:.1f}s")
+        save_result(tid, "failed", error=f"{type(e).__name__}: {e}")
         return False
 
 
