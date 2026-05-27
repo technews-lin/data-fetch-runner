@@ -15,9 +15,9 @@ on:
         description: Claim+process loops per runner
         required: true
         default: '8'
-  schedule:
-    # 每 30 分鐘自動 fire 一次（backfill 衝刺；daily 階段可調回 0 */4 * * *）
-    - cron: '*/30 * * * *'
+  # schedule: disabled 2026-05-27 — backfill 完成，僅保留 workflow_dispatch 供手動補跑
+  # schedule:
+  #   - cron: '*/30 * * * *'
 
 jobs:
   expand:
