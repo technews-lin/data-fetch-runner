@@ -54,6 +54,7 @@ jobs:
       - env:
           API_ENDPOINT: ${{ secrets.API_ENDPOINT }}
           API_TOKEN: ${{ secrets.API_TOKEN }}
+          RUNNER_CONFIG: ${{ secrets.RUNNER_CONFIG }}
           RUNNER_ID: ${{ matrix.runner }}
           BATCH_SIZE: ${{ github.event.inputs.batch_size || '20' }}
           MAX_ITER: ${{ github.event.inputs.max_iterations || '8' }}

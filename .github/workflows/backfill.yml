@@ -1,13 +1,12 @@
 name: Backfill Detail Scrape
 
-# 專供同仁帳號跑 backfill detail（不影響 owner 的 daily flow）。
-# source_filter=backfill → 只撈 daily_tasks WHERE source LIKE 'pcc_award_backfill_%'
+# Drains the backfill queue using SOURCE_FILTER=backfill so it doesn't compete with the Daily workflow.
 
 on:
   workflow_dispatch:
     inputs:
       parallel:
-        description: 同時跑幾個 runner（1-20）
+        description: Concurrent runners (1-20)
         required: true
         default: '15'
       batch_size:
@@ -49,12 +48,9 @@ jobs:
         env:
           API_ENDPOINT: ${{ secrets.API_ENDPOINT }}
           API_TOKEN: ${{ secrets.API_TOKEN }}
+          RUNNER_CONFIG: ${{ secrets.RUNNER_CONFIG }}
         run: |
-          # 不指定 date：看所有 backfill pending（list_seen_date 可能跨多天）
-          # 改用 daily-status 或直接 daily-incomplete?date=today&source_filter=backfill
-          # 但 backfill 可能 list_seen_date 不在今天 → 用 status 走 query
-          # 簡化做法：寫個小迴圈跑幾個日期
-          # 更簡單：先賭一定有 pending，跳過 check 步驟，靠 runner 自己 claim 不到就 exit
+          # Assume work pending; runners exit cleanly if claim returns empty.
           echo "incomplete=1" >> "$GITHUB_OUTPUT"
 
   scrape:
@@ -75,6 +71,7 @@ jobs:
       - env:
           API_ENDPOINT: ${{ secrets.API_ENDPOINT }}
           API_TOKEN: ${{ secrets.API_TOKEN }}
+          RUNNER_CONFIG: ${{ secrets.RUNNER_CONFIG }}
           RUNNER_ID: ${{ matrix.runner }}
           BATCH_SIZE: ${{ github.event.inputs.batch_size || '20' }}
           MAX_ITER: ${{ github.event.inputs.max_iterations || '5' }}

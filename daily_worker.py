@@ -1,7 +1,6 @@
 """Daily detail worker.
 
-從 daily_tasks queue 拉 pending → fetch detail URL → POST 結果回 CF。
-比 backfill 簡單：沒 search step。
+Claims pending tasks from queue, fetches the detail URL, posts result back.
 """
 from __future__ import annotations
 
@@ -12,6 +11,8 @@ import sys
 import time
 import warnings
 from curl_cffi import requests as cr
+
+from config import CAPTCHA_MARKERS, detail_referer
 
 warnings.filterwarnings("ignore")
 
@@ -24,10 +25,6 @@ MAX_ITER = int(os.environ.get("MAX_ITER", "8"))
 PACING_SEC = 15.0
 HEADERS_AUTH = {"Authorization": f"Bearer {API_TOKEN}"}
 
-BASE = "https://web.pcc.gov.tw"
-
-# captcha 偵測（PCC detail page）
-CAPTCHA_MARKERS = ("撲克", "請選擇相同", "請選出", "JCaptcha", "驗證碼")
 DETAIL_MIN_BYTES = 50 * 1024
 DETAIL_CAPTCHA_CEILING = 70 * 1024
 
@@ -55,7 +52,7 @@ def validate(html: str) -> tuple[bool, bool, str, int]:
 
 
 def claim_tasks(n: int):
-    # SOURCE_FILTER 預設 daily（不撈 backfill），可設 backfill / all
+    # SOURCE_FILTER: daily (default) / backfill / all
     source_filter = os.environ.get("SOURCE_FILTER", "daily")
     r = cr.get(
         f"{API_ENDPOINT}/api/daily-claim?n={n}&platform=gha-daily-{RUNNER_ID}&source_filter={source_filter}",
@@ -88,7 +85,7 @@ def process_task(session, task, rate_state):
     try:
         r = session.get(
             task["detail_url"],
-            headers={"Referer": f"{BASE}/prkms/tender/common/bulletion/readBulletion"},
+            headers={"Referer": detail_referer()},
             timeout=30,
         )
         rate_state["last"] = time.time()
@@ -124,7 +121,7 @@ def main():
     print(f"daily runner {RUNNER_ID} start, batch={BATCH_SIZE}, max_iter={MAX_ITER}")
     session = cr.Session(impersonate="chrome120", verify=False, timeout=30)
     try:
-        session.get(f"{BASE}/prkms/tender/common/bulletion/readBulletion")
+        session.get(detail_referer())
     except Exception:
         pass
 

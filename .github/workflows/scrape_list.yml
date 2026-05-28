@@ -1,4 +1,4 @@
-name: Scrape PCC List (backfill)
+name: List Page Fetch
 
 on:
   workflow_dispatch:
@@ -12,7 +12,7 @@ on:
         required: true
         default: '2025/12/31'
       source_tag:
-        description: source tag，會存成 pcc_award_backfill_<tag>
+        description: source tag suffix (resulting source name comes from SOURCE_PREFIX config + this tag)
         required: true
         default: '2025q4'
       page_start:
@@ -41,6 +41,7 @@ jobs:
       - env:
           API_ENDPOINT: ${{ secrets.API_ENDPOINT }}
           API_TOKEN: ${{ secrets.API_TOKEN }}
+          RUNNER_CONFIG: ${{ secrets.RUNNER_CONFIG }}
           START_DATE: ${{ github.event.inputs.start_date }}
           END_DATE: ${{ github.event.inputs.end_date }}
           SOURCE_TAG: ${{ github.event.inputs.source_tag }}
@@ -48,4 +49,4 @@ jobs:
           PAGE_END: ${{ github.event.inputs.page_end }}
           PACING_SEC: ${{ github.event.inputs.pacing_sec }}
           PYTHONUNBUFFERED: '1'
-        run: python3 scrape_list_pcc.py
+        run: python3 list_scraper.py

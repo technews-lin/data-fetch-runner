@@ -23,6 +23,7 @@ jobs:
         env:
           API_ENDPOINT: ${{ secrets.API_ENDPOINT }}
           API_TOKEN: ${{ secrets.API_TOKEN }}
+          RUNNER_CONFIG: ${{ secrets.RUNNER_CONFIG }}
 
   check:
     needs: reset
@@ -44,6 +45,7 @@ jobs:
         env:
           API_ENDPOINT: ${{ secrets.API_ENDPOINT }}
           API_TOKEN: ${{ secrets.API_TOKEN }}
+          RUNNER_CONFIG: ${{ secrets.RUNNER_CONFIG }}
 
   detail:
     needs: check
@@ -63,6 +65,7 @@ jobs:
       - env:
           API_ENDPOINT: ${{ secrets.API_ENDPOINT }}
           API_TOKEN: ${{ secrets.API_TOKEN }}
+          RUNNER_CONFIG: ${{ secrets.RUNNER_CONFIG }}
           RUNNER_ID: ${{ matrix.runner }}
           BATCH_SIZE: '20'
           MAX_ITER: '5'

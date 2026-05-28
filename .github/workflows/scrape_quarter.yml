@@ -1,4 +1,4 @@
-name: Scrape PCC Quarter (backfill)
+name: Quarter List Fetch
 
 # 一次跑完一個季度（假設 ~510 頁），matrix 平行多個 runner 分頁段抓。
 
@@ -12,14 +12,14 @@ on:
         description: 結束日 YYYY/MM/DD
         required: true
       source_tag:
-        description: source tag（如 2025q4）→ 存成 pcc_award_backfill_<tag>
+        description: source tag suffix (resulting source name comes from SOURCE_PREFIX config + this tag)
         required: true
       parallel:
         description: 平行 runner 數（1-20）
         required: true
         default: '5'
       total_pages:
-        description: 季度預估總頁數（PCC 一個季度約 500-520）
+        description: estimated total pages for this range
         required: true
         default: '520'
       pacing_sec:
@@ -70,6 +70,7 @@ jobs:
       - env:
           API_ENDPOINT: ${{ secrets.API_ENDPOINT }}
           API_TOKEN: ${{ secrets.API_TOKEN }}
+          RUNNER_CONFIG: ${{ secrets.RUNNER_CONFIG }}
           START_DATE: ${{ github.event.inputs.start_date }}
           END_DATE: ${{ github.event.inputs.end_date }}
           SOURCE_TAG: ${{ github.event.inputs.source_tag }}
@@ -78,4 +79,4 @@ jobs:
           PACING_SEC: ${{ github.event.inputs.pacing_sec }}
           PARALLEL_POSTS: '10'
           PYTHONUNBUFFERED: '1'
-        run: python3 scrape_list_pcc.py
+        run: python3 list_scraper.py

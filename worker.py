@@ -32,18 +32,14 @@ MAX_ITER = int(os.environ.get("MAX_ITER", "5"))
 PACING_SEC = 15.0  # 4 fetches per minute
 HEADERS_AUTH = {"Authorization": f"Bearer {API_TOKEN}"}
 
-BASE = "https://web.pcc.gov.tw"
-SEARCH_URL_TMPL = (
-    BASE
-    + "/prkms/tender/common/bulletion/readBulletion"
-    + "?querySentence={q}&tenderStatusType=%E6%B1%BA%E6%A8%99"
-    + "&sortCol=AWARD_NOTICE_DATE&timeRange={year}&pageSize=100"
+from config import (
+    BASE, CAPTCHA_MARKERS, REQUIRED_KEYWORDS,
+    DETAIL_LINK_REGEX, KIND_MAP,
+    search_url, detail_referer,
 )
 
-CAPTCHA_MARKERS = ("撲克", "請選擇相同", "請選出", "JCaptcha", "驗證碼")
 DETAIL_MIN_BYTES = 50 * 1024
 DETAIL_CAPTCHA_CEILING = 70 * 1024
-REQUIRED_KEYWORDS = ("機關名稱", "標案名稱")
 CURRENT_ROC_YEAR = 115
 
 
@@ -102,11 +98,11 @@ def parse_search_results(html: str) -> list[dict]:
     seen = set()
     for tr_match in re.finditer(r"<tr[^>]*>(.*?)</tr>", html, re.S):
         row = tr_match.group(1)
-        link_m = re.search(r'href="([^"]*?/urlSelector/common/(atm|nonAtm)\?pk=[^"]+)"', row)
+        link_m = re.search(DETAIL_LINK_REGEX, row)
         if not link_m:
             continue
         href = link_m.group(1)
-        kind = "non_award" if link_m.group(2) == "nonAtm" else "award"
+        kind = KIND_MAP.get(link_m.group(2), "unknown")
         abs_url = href if href.startswith("http") else BASE + href
         if abs_url in seen:
             continue
@@ -172,7 +168,7 @@ def process_task(session, task: dict, last_fetch_at: list[float]):
         elapsed = time.time() - last_fetch_at[0]
         if elapsed < PACING_SEC and last_fetch_at[0] > 0:
             time.sleep(PACING_SEC - elapsed)
-        url = SEARCH_URL_TMPL.format(q=urllib.parse.quote(case_no), year=year)
+        url = search_url(urllib.parse.quote(case_no), year)
         try:
             r = session.get(url)
             last_fetch_at[0] = time.time()
@@ -208,7 +204,7 @@ def process_task(session, task: dict, last_fetch_at: list[float]):
         try:
             r = session.get(
                 c["detail_url"],
-                headers={"Referer": BASE + "/prkms/tender/common/bulletion/readBulletion"},
+                headers={"Referer": detail_referer()},
             )
             last_fetch_at[0] = time.time()
             if r.status_code != 200:
@@ -244,7 +240,7 @@ def main():
     session = make_session()
     # warmup
     try:
-        session.get(BASE + "/prkms/tender/common/bulletion/readBulletion")
+        session.get(detail_referer())
     except Exception:
         pass
 
