@@ -166,8 +166,9 @@ def fetch_list(url: str, session, max_pages: int = 50) -> str:
 def main():
     print(f"daily list scrape, today={TODAY}")
     all_rows = []
-    for src in SOURCES:
-        print(f"\n== {src['source']} / {src['subtype'] or '-'} (max_pages={src.get('max_pages', 50)}) ==", flush=True)
+    for i, src in enumerate(SOURCES):
+        # Don't print source name (it appears in secret RUNNER_CONFIG and can leak target hints).
+        print(f"\n== source #{i+1} / {src['subtype'] or '-'} (max_pages={src.get('max_pages', 50)}) ==", flush=True)
         # Fresh session per source (isolate any slow-lane state)
         session = cr.Session(impersonate="chrome120", verify=False, timeout=60)
         session.headers.update(TARGET_HEADERS)
@@ -175,7 +176,8 @@ def main():
             from config import detail_referer
             session.get(detail_referer(), timeout=30)
         except Exception as e:
-            print(f"  warmup err: {e}", flush=True)
+            # Only exception class (message may contain URL/host)
+            print(f"  warmup err: {type(e).__name__}", flush=True)
         try:
             html = fetch_list(src["url"], session, max_pages=src.get("max_pages", 50))
             parsed = parse_list_html(html)
@@ -185,7 +187,8 @@ def main():
             print(f"  parsed {len(parsed)} rows", flush=True)
             all_rows.extend(parsed)
         except Exception as e:
-            print(f"  ERR: {e}", flush=True)
+            # Only exception class (message may contain URL/host)
+            print(f"  ERR: {type(e).__name__}", flush=True)
         try:
             session.close()
         except Exception:

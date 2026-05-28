@@ -65,7 +65,8 @@ def fetch_page(session, page_idx):
                 return r.text
             print(f"  page {page_idx} HTTP {r.status_code}, retry {attempt+1}", flush=True)
         except Exception as ex:
-            print(f"  page {page_idx} err {type(ex).__name__}: {ex}, retry {attempt+1}", flush=True)
+            # Only log exception class (full message may contain URL/host)
+            print(f"  page {page_idx} err {type(ex).__name__}, retry {attempt+1}", flush=True)
         time.sleep(5 * (attempt + 1))
     raise RuntimeError(f"page {page_idx} failed after {RETRY} retries")
 
@@ -138,7 +139,8 @@ def post_chunk(rows):
 
 
 def main():
-    print(f"start range={START_DATE}~{END_DATE} src={SOURCE} pages={PAGE_START}-{PAGE_END}", flush=True)
+    # Don't print SOURCE (contains source_prefix from secret config).
+    print(f"start range={START_DATE}~{END_DATE} tag={SOURCE_TAG} pages={PAGE_START}-{PAGE_END}", flush=True)
     print(f"  PACING_SEC={PACING_SEC} PARALLEL_POSTS={PARALLEL_POSTS} LIST_SEEN_DATE={LIST_SEEN_DATE}", flush=True)
 
     session = cr.Session(impersonate="chrome120")

@@ -81,7 +81,8 @@ def process_task(session, task, rate_state):
             print(f"  task {tid}: pacing {wait:.1f}s")
             time.sleep(wait)
     t0 = time.time()
-    print(f"  task {tid}: fetch {task['detail_url']}")
+    # Don't log the URL itself (would leak in public action logs).
+    print(f"  task {tid}: fetching...")
     try:
         r = session.get(
             task["detail_url"],
@@ -112,8 +113,14 @@ def process_task(session, task, rate_state):
     except Exception as e:
         rate_state["last"] = time.time()
         dt = rate_state["last"] - t0
+        # Only log exception class name, not message (message may contain URL/host)
         print(f"  task {tid}: exception {type(e).__name__} in {dt:.1f}s")
-        save_result(tid, "failed", error=f"{type(e).__name__}: {e}")
+        # Sanitize the error sent back to the API too (still useful for retry logic)
+        err_msg = str(e)
+        # Strip anything that looks like a URL
+        import re as _re
+        err_msg = _re.sub(r"https?://\S+", "<url>", err_msg)
+        save_result(tid, "failed", error=f"{type(e).__name__}: {err_msg[:200]}")
         return False
 
 
