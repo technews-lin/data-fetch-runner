@@ -1,0 +1,51 @@
+name: Scrape PCC List (backfill)
+
+on:
+  workflow_dispatch:
+    inputs:
+      start_date:
+        description: 起始日 YYYY/MM/DD（例 2025/10/01）
+        required: true
+        default: '2025/10/01'
+      end_date:
+        description: 結束日 YYYY/MM/DD（例 2025/12/31）
+        required: true
+        default: '2025/12/31'
+      source_tag:
+        description: source tag，會存成 pcc_award_backfill_<tag>
+        required: true
+        default: '2025q4'
+      page_start:
+        description: 起始頁
+        required: true
+        default: '1'
+      page_end:
+        description: 結束頁
+        required: true
+        default: '5'
+      pacing_sec:
+        description: 頁間隔秒數（GHA IP 可短，預設 2）
+        required: true
+        default: '2'
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -q curl_cffi
+      - env:
+          API_ENDPOINT: ${{ secrets.API_ENDPOINT }}
+          API_TOKEN: ${{ secrets.API_TOKEN }}
+          START_DATE: ${{ github.event.inputs.start_date }}
+          END_DATE: ${{ github.event.inputs.end_date }}
+          SOURCE_TAG: ${{ github.event.inputs.source_tag }}
+          PAGE_START: ${{ github.event.inputs.page_start }}
+          PAGE_END: ${{ github.event.inputs.page_end }}
+          PACING_SEC: ${{ github.event.inputs.pacing_sec }}
+          PYTHONUNBUFFERED: '1'
+        run: python3 scrape_list_pcc.py
