@@ -1,4 +1,4 @@
-"""scrape_list_pcc.py — 在 GHA 上跑 PCC readTenderAgent 列表頁，直接 POST 進 CF daily_tasks。
+"""scrape_list_pcc.py — 在 GHA 上跑 PCC readTenderAgent 列表頁，parallel POST 進 CF daily_tasks。
 
 env vars:
   API_ENDPOINT, API_TOKEN  # CF Worker
@@ -6,8 +6,10 @@ env vars:
   END_DATE    "2025/12/31"
   SOURCE_TAG  "2025q4"
   PAGE_START  1
-  PAGE_END    5
-  LIST_SEEN_DATE  "2026-05-28"  # 寫入 daily_tasks 的日期欄位
+  PAGE_END    50
+  LIST_SEEN_DATE  "2026-05-28"
+  PACING_SEC  2.0
+  PARALLEL_POSTS  10  # 同時最多幾個 POST
 """
 from __future__ import annotations
 
@@ -17,22 +19,24 @@ import re
 import sys
 import time
 import urllib.parse
+from concurrent.futures import ThreadPoolExecutor
 
 from curl_cffi import requests as cr
 
 API_ENDPOINT = os.environ["API_ENDPOINT"].rstrip("/")
 API_TOKEN = os.environ["API_TOKEN"]
-START_DATE = os.environ["START_DATE"]      # YYYY/MM/DD
+START_DATE = os.environ["START_DATE"]
 END_DATE = os.environ["END_DATE"]
 SOURCE_TAG = os.environ["SOURCE_TAG"]
 PAGE_START = int(os.environ.get("PAGE_START", "1"))
-PAGE_END = int(os.environ.get("PAGE_END", "5"))
+PAGE_END = int(os.environ.get("PAGE_END", "50"))
 LIST_SEEN_DATE = os.environ.get("LIST_SEEN_DATE", time.strftime("%Y-%m-%d"))
+PACING_SEC = float(os.environ.get("PACING_SEC", "2.0"))
+PARALLEL_POSTS = int(os.environ.get("PARALLEL_POSTS", "10"))
 SOURCE = f"pcc_award_backfill_{SOURCE_TAG}"
 
 BASE = "https://web.pcc.gov.tw"
 PAGE_PARAM = "d-16396-p"
-PACING_SEC = float(os.environ.get("PACING_SEC", "2.0"))  # GHA IP 較不易被擋，pacing 可短
 TIMEOUT = 30
 RETRY = 3
 
@@ -46,7 +50,7 @@ HEADERS = {
 }
 
 
-def build_list_url(start: str, end: str) -> str:
+def build_list_url(start, end):
     s = urllib.parse.quote(start, safe="")
     e = urllib.parse.quote(end, safe="")
     return (
@@ -58,7 +62,7 @@ def build_list_url(start: str, end: str) -> str:
     )
 
 
-def fetch_page(session, list_url: str, page_idx: int) -> str:
+def fetch_page(session, list_url, page_idx):
     url = f"{list_url}&{PAGE_PARAM}={page_idx}"
     for attempt in range(RETRY):
         try:
@@ -72,21 +76,19 @@ def fetch_page(session, list_url: str, page_idx: int) -> str:
     raise RuntimeError(f"page {page_idx} failed after {RETRY} retries")
 
 
-def parse_page(html: str) -> list[dict]:
+def parse_page(html):
     rows = []
     seen_pks = set()
     for tr_m in re.finditer(r"<tr[^>]*>(.*?)</tr>", html, re.S):
         row_html = tr_m.group(1)
         link_m = re.search(r'href="([^"]*?/urlSelector/common/(atm|nonAtm)\?pk=[\w=%]+)"', row_html)
-        if not link_m:
-            continue
+        if not link_m: continue
         href = link_m.group(1).replace("&amp;", "&")
         kind = "non_award" if link_m.group(2) == "nonAtm" else "award"
         abs_url = href if href.startswith("http") else BASE + href
         pk_m = re.search(r"pk=([\w=%]+)", abs_url)
         pk = urllib.parse.unquote(pk_m.group(1))
-        if pk in seen_pks:
-            continue
+        if pk in seen_pks: continue
         seen_pks.add(pk)
         cells = re.findall(r"<td[^>]*>(.*?)</td>", row_html, re.S)
         clean = lambda s: re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", s)).strip()
@@ -95,7 +97,7 @@ def parse_page(html: str) -> list[dict]:
     return rows
 
 
-def parse_cells_for_db(cells: list[str]) -> dict:
+def parse_cells_for_db(cells):
     out = {"org": None, "case_no": None, "case_name": None, "list_announce_date": None, "budget": None}
     if len(cells) >= 2: out["org"] = cells[1] or None
     if len(cells) >= 3:
@@ -109,44 +111,52 @@ def parse_cells_for_db(cells: list[str]) -> dict:
     return out
 
 
-def post_to_cf(rows: list[dict]):
-    payload_rows = []
-    for r in rows:
-        p = parse_cells_for_db(r["cells"])
-        payload_rows.append({
+def post_chunk(rows):
+    payload = [
+        {
             "source": SOURCE,
             "source_subtype": "pcc_award_backfill",
             "pk": r["pk"],
-            "case_no": p["case_no"],
-            "org": p["org"],
-            "case_name": p["case_name"],
+            "case_no": p["case_no"], "org": p["org"], "case_name": p["case_name"],
             "detail_url": r["detail_url"],
             "list_announce_date": p["list_announce_date"],
             "list_deadline": None,
             "budget_text": p["budget"],
-        })
-    resp = cr.post(
-        f"{API_ENDPOINT}/api/daily-bulk-insert",
-        headers={"Authorization": f"Bearer {API_TOKEN}", "Content-Type": "application/json"},
-        data=json.dumps({"rows": payload_rows, "list_seen_date": LIST_SEEN_DATE}),
-        timeout=120,
-    )
-    return resp.status_code, resp.text[:200]
+        }
+        for r in rows
+        for p in [parse_cells_for_db(r["cells"])]
+    ]
+    for attempt in range(3):
+        try:
+            resp = cr.post(
+                f"{API_ENDPOINT}/api/daily-bulk-insert",
+                headers={"Authorization": f"Bearer {API_TOKEN}", "Content-Type": "application/json"},
+                data=json.dumps({"rows": payload, "list_seen_date": LIST_SEEN_DATE}),
+                timeout=180,
+            )
+            j = resp.json()
+            return j.get("inserted", 0), j.get("skipped", 0), None
+        except Exception as e:
+            if attempt == 2: return 0, 0, str(e)[:200]
+            time.sleep(2 * (attempt + 1))
 
 
 def main():
-    print(f"start, range={START_DATE}~{END_DATE}, source={SOURCE}, pages={PAGE_START}-{PAGE_END}", flush=True)
-    print(f"  PACING_SEC={PACING_SEC}", flush=True)
+    print(f"start range={START_DATE}~{END_DATE} src={SOURCE} pages={PAGE_START}-{PAGE_END}", flush=True)
+    print(f"  PACING_SEC={PACING_SEC} PARALLEL_POSTS={PARALLEL_POSTS} LIST_SEEN_DATE={LIST_SEEN_DATE}", flush=True)
 
     list_url = build_list_url(START_DATE, END_DATE)
     session = cr.Session(impersonate="chrome120")
-    # warmup
     session.get(f"{BASE}/prkms/tender/common/bulletion/readBulletion", headers=HEADERS, timeout=TIMEOUT)
 
+    # 共用 thread pool dispatch POST，邊抓邊送
+    pool = ThreadPoolExecutor(max_workers=PARALLEL_POSTS)
+    futures = []
     total_rows = 0
-    total_inserted = 0
-    total_skipped = 0
+    total_ins = 0
+    total_skip = 0
     t0 = time.time()
+
     for page in range(PAGE_START, PAGE_END + 1):
         if page > PAGE_START:
             time.sleep(PACING_SEC)
@@ -155,20 +165,26 @@ def main():
         fetch_sec = time.time() - t_page
         rows = parse_page(html)
         if not rows:
-            print(f"  page {page}: 0 rows ({fetch_sec:.1f}s fetch)", flush=True)
+            print(f"  page {page}: 0 rows ({fetch_sec:.1f}s)", flush=True)
             continue
-        sc, body = post_to_cf(rows)
-        try:
-            j = json.loads(body)
-            total_inserted += j.get("inserted", 0)
-            total_skipped += j.get("skipped", 0)
-        except Exception:
-            pass
         total_rows += len(rows)
-        print(f"  page {page}: {len(rows)} rows ({fetch_sec:.1f}s fetch) → POST {sc}", flush=True)
+        # dispatch POST 不等
+        fut = pool.submit(post_chunk, rows)
+        futures.append((page, fut))
+        print(f"  page {page}: {len(rows)} rows ({fetch_sec:.1f}s) → dispatched", flush=True)
 
+    # 等所有 POST 完成
+    print(f"all pages fetched, waiting for {len(futures)} POST to complete...", flush=True)
+    for page, fut in futures:
+        ins, skip, err = fut.result()
+        total_ins += ins
+        total_skip += skip
+        if err: print(f"  page {page} POST ERR: {err}", flush=True)
+
+    pool.shutdown(wait=True)
     elapsed = time.time() - t0
-    print(f"DONE. pages={PAGE_END-PAGE_START+1} rows={total_rows} ins={total_inserted} skip={total_skipped} elapsed={elapsed:.1f}s avg={elapsed/(PAGE_END-PAGE_START+1):.1f}s/page", flush=True)
+    n_pages = PAGE_END - PAGE_START + 1
+    print(f"DONE pages={n_pages} rows={total_rows} ins={total_ins} skip={total_skip} elapsed={elapsed:.1f}s avg={elapsed/n_pages:.1f}s/page", flush=True)
 
 
 if __name__ == "__main__":

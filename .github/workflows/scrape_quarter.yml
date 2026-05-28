@@ -1,0 +1,81 @@
+name: Scrape PCC Quarter (backfill)
+
+# 一次跑完一個季度（假設 ~510 頁），matrix 平行多個 runner 分頁段抓。
+
+on:
+  workflow_dispatch:
+    inputs:
+      start_date:
+        description: 起始日 YYYY/MM/DD
+        required: true
+      end_date:
+        description: 結束日 YYYY/MM/DD
+        required: true
+      source_tag:
+        description: source tag（如 2025q4）→ 存成 pcc_award_backfill_<tag>
+        required: true
+      parallel:
+        description: 平行 runner 數（1-20）
+        required: true
+        default: '5'
+      total_pages:
+        description: 季度預估總頁數（PCC 一個季度約 500-520）
+        required: true
+        default: '520'
+      pacing_sec:
+        description: 同 runner 內頁間隔秒數
+        required: true
+        default: '2'
+
+jobs:
+  expand:
+    runs-on: ubuntu-latest
+    outputs:
+      slices: ${{ steps.gen.outputs.slices }}
+    steps:
+      - id: gen
+        env:
+          P: ${{ github.event.inputs.parallel }}
+          T: ${{ github.event.inputs.total_pages }}
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import os, json
+          p = int(os.environ['P'])
+          t = int(os.environ['T'])
+          # 均分頁段：[ (start, end), ... ]
+          per = (t + p - 1) // p
+          slices = []
+          for i in range(p):
+              s = i * per + 1
+              e = min((i + 1) * per, t)
+              if s > e: break
+              slices.append({"name": f"r{i+1}", "page_start": str(s), "page_end": str(e)})
+          print("slices=" + json.dumps(slices))
+          PY
+
+  scrape:
+    needs: expand
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        slice: ${{ fromJSON(needs.expand.outputs.slices) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -q curl_cffi
+      - env:
+          API_ENDPOINT: ${{ secrets.API_ENDPOINT }}
+          API_TOKEN: ${{ secrets.API_TOKEN }}
+          START_DATE: ${{ github.event.inputs.start_date }}
+          END_DATE: ${{ github.event.inputs.end_date }}
+          SOURCE_TAG: ${{ github.event.inputs.source_tag }}
+          PAGE_START: ${{ matrix.slice.page_start }}
+          PAGE_END: ${{ matrix.slice.page_end }}
+          PACING_SEC: ${{ github.event.inputs.pacing_sec }}
+          PARALLEL_POSTS: '10'
+          PYTHONUNBUFFERED: '1'
+        run: python3 scrape_list_pcc.py
