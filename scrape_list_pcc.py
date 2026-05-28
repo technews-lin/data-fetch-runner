@@ -157,6 +157,7 @@ def main():
     total_skip = 0
     t0 = time.time()
 
+    consecutive_empty = 0
     for page in range(PAGE_START, PAGE_END + 1):
         if page > PAGE_START:
             time.sleep(PACING_SEC)
@@ -165,8 +166,13 @@ def main():
         fetch_sec = time.time() - t_page
         rows = parse_page(html)
         if not rows:
-            print(f"  page {page}: 0 rows ({fetch_sec:.1f}s)", flush=True)
+            consecutive_empty += 1
+            print(f"  page {page}: 0 rows ({fetch_sec:.1f}s) [empty {consecutive_empty}/2]", flush=True)
+            if consecutive_empty >= 2:
+                print(f"  ⏹  連續 2 頁 0 rows，提早結束（可能已超過實際最後一頁）", flush=True)
+                break
             continue
+        consecutive_empty = 0
         total_rows += len(rows)
         # dispatch POST 不等
         fut = pool.submit(post_chunk, rows)
