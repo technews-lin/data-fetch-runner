@@ -55,8 +55,10 @@ def validate(html: str) -> tuple[bool, bool, str, int]:
 
 
 def claim_tasks(n: int):
+    # SOURCE_FILTER 預設 daily（不撈 backfill），可設 backfill / all
+    source_filter = os.environ.get("SOURCE_FILTER", "daily")
     r = cr.get(
-        f"{API_ENDPOINT}/api/daily-claim?n={n}&platform=gha-daily-{RUNNER_ID}",
+        f"{API_ENDPOINT}/api/daily-claim?n={n}&platform=gha-daily-{RUNNER_ID}&source_filter={source_filter}",
         headers=HEADERS_AUTH,
         timeout=30,
     )

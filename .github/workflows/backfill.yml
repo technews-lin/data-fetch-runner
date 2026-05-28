@@ -1,0 +1,83 @@
+name: Backfill Detail Scrape
+
+# 專供同仁帳號跑 backfill detail（不影響 owner 的 daily flow）。
+# source_filter=backfill → 只撈 daily_tasks WHERE source LIKE 'pcc_award_backfill_%'
+
+on:
+  workflow_dispatch:
+    inputs:
+      parallel:
+        description: 同時跑幾個 runner（1-20）
+        required: true
+        default: '15'
+      batch_size:
+        description: 每次 claim 幾個 task
+        required: true
+        default: '20'
+      max_iterations:
+        description: 每個 runner 跑幾輪 claim
+        required: true
+        default: '5'
+  schedule:
+    # backfill 衝刺：每 30 分鐘自動 fire 一次
+    # （想關掉 cron 把這兩行 comment 掉即可）
+    - cron: '*/30 * * * *'
+
+jobs:
+  expand:
+    runs-on: ubuntu-latest
+    outputs:
+      runners: ${{ steps.gen.outputs.runners }}
+    steps:
+      - id: gen
+        env:
+          P: ${{ github.event.inputs.parallel || '15' }}
+        run: |
+          python3 -c "
+          import os, json
+          p = int(os.environ['P'])
+          print('runners=' + json.dumps([f'b{i+1}' for i in range(p)]))
+          " >> "$GITHUB_OUTPUT"
+
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      incomplete: ${{ steps.q.outputs.incomplete }}
+    steps:
+      - id: q
+        env:
+          API_ENDPOINT: ${{ secrets.API_ENDPOINT }}
+          API_TOKEN: ${{ secrets.API_TOKEN }}
+        run: |
+          # 不指定 date：看所有 backfill pending（list_seen_date 可能跨多天）
+          # 改用 daily-status 或直接 daily-incomplete?date=today&source_filter=backfill
+          # 但 backfill 可能 list_seen_date 不在今天 → 用 status 走 query
+          # 簡化做法：寫個小迴圈跑幾個日期
+          # 更簡單：先賭一定有 pending，跳過 check 步驟，靠 runner 自己 claim 不到就 exit
+          echo "incomplete=1" >> "$GITHUB_OUTPUT"
+
+  scrape:
+    needs: [expand, check]
+    if: ${{ fromJSON(needs.check.outputs.incomplete) > 0 }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: ${{ fromJSON(needs.expand.outputs.runners) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -q curl_cffi
+      - env:
+          API_ENDPOINT: ${{ secrets.API_ENDPOINT }}
+          API_TOKEN: ${{ secrets.API_TOKEN }}
+          RUNNER_ID: ${{ matrix.runner }}
+          BATCH_SIZE: ${{ github.event.inputs.batch_size || '20' }}
+          MAX_ITER: ${{ github.event.inputs.max_iterations || '5' }}
+          SOURCE_FILTER: 'backfill'   # ← 只撈 backfill source
+          PYTHONUNBUFFERED: '1'
+        run: python3 daily_worker.py
