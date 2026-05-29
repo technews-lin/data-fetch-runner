@@ -30,7 +30,7 @@ jobs:
     steps:
       - id: gen
         env:
-          P: ${{ github.event.inputs.parallel || '15' }}
+          P: ${{ github.event.inputs.parallel || '18' }}
         run: |
           python3 -c "
           import os, json
