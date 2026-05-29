@@ -8,7 +8,7 @@ on:
       parallel:
         description: Concurrent runners (1-20)
         required: true
-        default: '15'
+        default: '18'
       batch_size:
         description: 每次 claim 幾個 task
         required: true
